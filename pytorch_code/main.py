@@ -49,6 +49,7 @@ def main():
     else:
         n_node = 310
 
+    # ARC : We are passing opt (all hyper parameters) and n_node (unique items specific to dataset)
     model = trans_to_cuda(SessionGraph(opt, n_node))
 
     start = time.time()

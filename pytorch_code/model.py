@@ -37,7 +37,7 @@ class GNN(Module):
         input_in = torch.matmul(A[:, :, :A.shape[1]], self.linear_edge_in(hidden)) + self.b_iah
         input_out = torch.matmul(A[:, :, A.shape[1]: 2 * A.shape[1]], self.linear_edge_out(hidden)) + self.b_oah
         inputs = torch.cat([input_in, input_out], 2)
-        gi = F.linear(inputs, self.w_ih, self.b_ih)
+        gi = F.linear(inputs, self.w_ih, self.b_ih) # This is just transformation
         gh = F.linear(hidden, self.w_hh, self.b_hh)
         i_r, i_i, i_n = gi.chunk(3, 2)
         h_r, h_i, h_n = gh.chunk(3, 2)
@@ -78,10 +78,18 @@ class SessionGraph(Module):
 
     def compute_scores(self, hidden, mask):
         ht = hidden[torch.arange(mask.shape[0]).long(), torch.sum(mask, 1) - 1]  # batch_size x latent_size
+        # ht is vn. Embedding of last item. ht is also local session embedding
+
         q1 = self.linear_one(ht).view(ht.shape[0], 1, ht.shape[1])  # batch_size x 1 x latent_size
+        # q1 impact of last item in global session embedding
         q2 = self.linear_two(hidden)  # batch_size x seq_length x latent_size
+        # q2 is computed for each item.
+        # alpha also is for each item.
+
         alpha = self.linear_three(torch.sigmoid(q1 + q2))
         a = torch.sum(alpha * hidden * mask.view(mask.shape[0], -1, 1).float(), 1)
+        # a is global session embedding. a is d-dimentional. 
+        
         if not self.nonhybrid:
             a = self.linear_transform(torch.cat([a, ht], 1))
         b = self.embedding.weight[1:]  # n_nodes x latent_size
@@ -114,12 +122,12 @@ def forward(model, i, data):
     items = trans_to_cuda(torch.Tensor(items).long())
     A = trans_to_cuda(torch.Tensor(A).float())
     mask = trans_to_cuda(torch.Tensor(mask).long())
-    hidden = model(items, A)
+    hidden = model(items, A) # ARC : actual forward pass
     get = lambda i: hidden[i][alias_inputs[i]]
     seq_hidden = torch.stack([get(i) for i in torch.arange(len(alias_inputs)).long()])
     return targets, model.compute_scores(seq_hidden, mask)
 
-
+# ARC : Entry point from main.py
 def train_test(model, train_data, test_data):
     model.scheduler.step()
     print('start training: ', datetime.datetime.now())
@@ -128,9 +136,9 @@ def train_test(model, train_data, test_data):
     slices = train_data.generate_batch(model.batch_size)
     for i, j in zip(slices, np.arange(len(slices))):
         model.optimizer.zero_grad()
-        targets, scores = forward(model, i, train_data)
+        targets, scores = forward(model, i, train_data) # ARC : forward call - returns scores for each item
         targets = trans_to_cuda(torch.Tensor(targets).long())
-        loss = model.loss_function(scores, targets - 1)
+        loss = model.loss_function(scores, targets - 1) # ARC : loss function is defined in __init__. It is cross-entropy loss
         loss.backward()
         model.optimizer.step()
         total_loss += loss
